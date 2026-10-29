@@ -1,0 +1,29 @@
+{
+  "name": "@currency-quiz/contract",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared OpenAPI contract and generated TypeScript types for Currency Quiz",
+  "type": "module",
+  "types": "./generated/typescript/schema.d.ts",
+  "exports": {
+    ".": {
+      "types": "./generated/typescript/schema.d.ts"
+    }
+  },
+  "files": ["openapi", "generated/typescript"],
+  "scripts": {
+    "generate": "openapi-typescript openapi/currency-quiz.v1.yaml --output generated/typescript/schema.d.ts",
+    "lint": "redocly lint openapi/currency-quiz.v1.yaml",
+    "check": "npm run lint && npm run generate -- --check && tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.72.1",
+    "openapi-fetch": "0.17.0",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}
