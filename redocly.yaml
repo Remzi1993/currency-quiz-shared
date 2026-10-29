@@ -1,7 +1,4 @@
 extends:
   - recommended
 rules:
-  # This local contract is served from each deployment's own origin.
-  no-server-example.com: off
   info-license: off
-  operation-description: off
