@@ -1,28 +1,31 @@
-import createClient from "openapi-fetch";
-import type { components, paths } from "../generated/typescript/schema";
+import type {
+  AnswerRequest,
+  AnswerResponse,
+  PublicQuestion,
+  UpdateQuestionRequest,
+} from "@currency-quiz/contract";
+
+export type { PublicQuestion };
+export type QuestionPatch = UpdateQuestionRequest;
 
 // The Vue app supplies its backend origin, for example from VITE_API_BASE_URL.
-export const createQuizClient = (baseUrl: string) => createClient<paths>({ baseUrl });
-export type PublicQuestion = components["schemas"]["PublicQuestion"];
-export type QuestionPatch = components["schemas"]["UpdateQuestionRequest"];
-
+// These annotations describe the expected JSON; they do not validate it at runtime.
 export async function playExample(baseUrl: string): Promise<boolean | undefined> {
-  const api = createQuizClient(baseUrl);
-  const { data: questions, error } = await api.GET("/api/v1/questions");
-  if (error) throw new Error(error.message);
-  const question = questions?.[0];
+  const response = await fetch(new URL("/api/v1/questions", baseUrl));
+  if (!response.ok) throw new Error(`Loading questions failed: ${response.status}`);
+  const questions: PublicQuestion[] = await response.json();
+  const question = questions[0];
   if (!question) return;
-
-  // Public responses cannot supply the solution to the browser.
-  // @ts-expect-error correctAnswer belongs to AdminQuestion, not PublicQuestion.
-  question.correctAnswer;
 
   const answer = question.options[0];
   if (!answer) return;
-  const result = await api.POST("/api/v1/questions/{id}/answers", {
-    params: { path: { id: question.id } },
-    body: { answer },
+  const body: AnswerRequest = { answer };
+  const result = await fetch(new URL(`/api/v1/questions/${encodeURIComponent(question.id)}/answers`, baseUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
-  if (result.error) throw new Error(result.error.message);
-  return result.data.correct;
+  if (!result.ok) throw new Error(`Submitting an answer failed: ${result.status}`);
+  const data: AnswerResponse = await result.json();
+  return data.correct;
 }

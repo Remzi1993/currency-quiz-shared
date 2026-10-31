@@ -1,0 +1,18 @@
+{
+  "templateDir": "generators/typescript",
+  "modelPropertyNaming": "original",
+  "dateLibrary": "string",
+  "withoutRuntimeChecks": true,
+  "hideGenerationTimestamp": true,
+  "disallowAdditionalPropertiesIfNotPresent": false,
+  "typeMappings": {
+    "set": "Array",
+    "Set": "Array"
+  },
+  "globalProperties": {
+    "models": "",
+    "supportingFiles": "index.ts",
+    "modelDocs": "false",
+    "modelTests": "false"
+  }
+}

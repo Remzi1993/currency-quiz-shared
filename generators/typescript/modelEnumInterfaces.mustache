@@ -1,0 +1,6 @@
+{{! Based on OpenAPI Generator 7.26.0; enum exports are types because this package has no runtime. }}
+/**
+ * {{#lambda.indented_star_1}}{{{unescapedDescription}}}{{/lambda.indented_star_1}}
+ * @export
+ */
+export type {{classname}} = {{#allowableValues}}{{#enumVars}}{{{value}}}{{^-last}} | {{/-last}}{{/enumVars}}{{^enumVars}}never{{/enumVars}}{{/allowableValues}};

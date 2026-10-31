@@ -9,7 +9,7 @@ servers:
 security: []
 tags:
   - name: Quiz
-    description: Public questions and server-side answer checking.
+    description: Questions and server-side answer checking.
   - name: Authentication
     description: Admin access tokens.
   - name: Administration
@@ -57,7 +57,7 @@ paths:
               description: URL of the public question resource.
               schema:
                 type: string
-                example: /api/v1/questions/58d6497e-227a-4bc4-938e-159f449df87e
+                example: /api/v1/questions/c72b3aab-633f-4268-88e7-c6ba1c3bb217
           content:
             application/json:
               schema:

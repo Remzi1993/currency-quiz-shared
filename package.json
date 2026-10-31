@@ -10,20 +10,22 @@
       "types": "./generated/typescript/schema.d.ts"
     }
   },
-  "files": ["openapi", "generated/typescript"],
+  "files": [
+    "openapi",
+    "generated/typescript"
+  ],
   "scripts": {
-    "generate": "openapi-typescript openapi/currency-quiz.v1.yaml --output generated/typescript/schema.d.ts",
+    "generate": "node scripts/generate-typescript.mjs",
     "lint": "redocly lint openapi/currency-quiz.v1.yaml",
     "check": "npm run lint && npm run generate -- --check && tsc --noEmit"
   },
   "engines": {
-    "node": ">=22.12.0",
-    "npm": ">=10"
+    "node": ">=26",
+    "npm": ">=11"
   },
   "devDependencies": {
+    "@openapitools/openapi-generator-cli": "^2.42.0",
     "@redocly/cli": "2.72.1",
-    "openapi-fetch": "0.17.0",
-    "openapi-typescript": "7.13.0",
-    "typescript": "5.9.3"
+    "typescript": "7.0.2"
   }
 }
