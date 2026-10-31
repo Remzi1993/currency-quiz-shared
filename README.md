@@ -129,3 +129,20 @@ These tasks include contract validation and Kotlin model generation as needed. `
 - Optional input additions can be compatible with existing callers. Response schemas are closed against extra fields, so adding a response field requires coordinated consumer contract updates. Use a new major API version if older consumers must keep their existing contract. Record changes in [CHANGELOG.md](CHANGELOG.md).
 - Commit contract changes in this repository first. Fetch and check out that exact commit inside each consumer's `shared/`, then commit the submodule pointer with its application changes. Do not automatically follow the newest branch commit during a build.
 - Run shared checks and the backend's contract/regression tests before updating consumers. Frontend integration and consumer-driven Pact testing remain separate work.
+
+## Continuous integration
+
+[Shared CI](.github/workflows/ci.yml) defines GitHub Actions checks for pushes, pull requests and manual runs. One Ubuntu job installs locked dependencies, lints OpenAPI, checks generated declaration freshness and type-checks the consumer examples and contract guarantees. Separate named steps make a failed gate visible in the logs. It uses Node 26 and Temurin Java 25; Java runs OpenAPI Generator.
+
+Actions are pinned to full commit IDs with release-version comments; update both together when upgrading. Repository permissions are read-only, and newer runs cancel older ones for the same workflow/ref. To require successful checks before merging, add its `checks` status to the branch ruleset after the first run.
+
+Run the same gates locally from this repository root (PowerShell 7+ and Linux/Bash):
+
+```sh
+npm ci
+npm run check
+```
+
+CI runs the constituent commands as separate steps: `npm run lint`, `npm run generate -- --check` and `npm exec -- tsc --noEmit`. The freshness step does not rewrite committed declarations. If it reports stale output, run `npm run generate`, review the diff and rerun `npm run check` before committing.
+
+After committing and pushing the workflow, open **Actions → Shared CI** on GitHub to inspect a run. Manual runs become available from the default branch. This repository supplies contract artifacts through pinned Git submodules; it has no application deployment or publishing step. See the [CI/CD Basics evidence](docs/managing-and-collaborating/starting-points/ci-cd-basics.md) for the stage explanation and remaining evidence gaps.
