@@ -3,7 +3,7 @@ info:
   title: Currency quiz API
   description: >-
     Play a currency quiz without an account. An authenticated admin can manage questions.
-  version: "1.0.0"
+  version: "1.2.0"
 servers:
   - url: /
 security: []
@@ -11,9 +11,9 @@ tags:
   - name: Quiz
     description: Questions and server-side answer checking.
   - name: Authentication
-    description: Admin access tokens.
+    description: Browser admin sessions and access tokens for non-browser clients.
   - name: Administration
-    description: Question management protected by an admin token.
+    description: Question management protected by a browser session or admin bearer token.
 paths:
   /api/v1/questions:
     get:
@@ -37,8 +37,13 @@ paths:
       tags: [Administration]
       operationId: createQuestion
       summary: Create a question
+      description: >-
+        Use an admin bearer token, or a browser session cookie with its X-CSRF-Token
+        header and an Origin explicitly allowed for browser administration.
       security:
         - adminBearer: []
+        - adminCookie: []
+          adminCsrf: []
       requestBody:
         required: true
         content:
@@ -66,6 +71,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
         "500":
@@ -97,9 +104,13 @@ paths:
       description: >-
         Supply at least one field. Omitted or null fields retain their previous values.
         The merged question must be valid; changing options may require changing
-        correctAnswer in the same request.
+        correctAnswer in the same request. Use an admin bearer token, or a browser
+        session cookie with its X-CSRF-Token header and an Origin explicitly allowed
+        for browser administration.
       security:
         - adminBearer: []
+        - adminCookie: []
+          adminCsrf: []
       requestBody:
         required: true
         content:
@@ -119,6 +130,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "415":
@@ -129,8 +142,13 @@ paths:
       tags: [Administration]
       operationId: deleteQuestion
       summary: Delete a question
+      description: >-
+        Use an admin bearer token, or a browser session cookie with its X-CSRF-Token
+        header and an Origin explicitly allowed for browser administration.
       security:
         - adminBearer: []
+        - adminCookie: []
+          adminCsrf: []
       responses:
         "204":
           description: Question deleted. No response body.
@@ -138,6 +156,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -185,7 +205,10 @@ paths:
       summary: Obtain an admin access token
       description: >-
         Checks the configured admin username and password. Limited to 5 requests
-        per minute per client IP. Use HTTPS outside local development.
+        per minute per client IP, shared with browser session sign-in. This endpoint
+        returns a bearer token for scripts and other non-browser clients; it does not
+        create a browser cookie. Browser applications should use POST /api/v1/auth/session
+        instead. Use HTTPS outside local development.
       requestBody:
         required: true
         content:
@@ -209,6 +232,181 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/v1/auth/session:
+    post:
+      tags: [Authentication]
+      operationId: createBrowserSession
+      summary: Sign in to a browser admin session
+      description: >-
+        Checks the configured admin username and password, revokes an existing session
+        presented by this browser, and sets an opaque HttpOnly cookie. Requires JSON
+        and an Origin in ADMIN_CORS_ALLOWED_ORIGINS, which never accepts a wildcard.
+        Limited to 5 sign-in requests per minute per client IP, shared with
+        POST /api/v1/auth/login. The response contains session metadata and a CSRF
+        token, never the cookie value or a bearer token. Use credentials: include for
+        browser requests and keep the CSRF token in memory. Session responses use
+        Cache-Control: no-store. Use HTTPS outside local development.
+      parameters:
+        - $ref: "#/components/parameters/BrowserOrigin"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Browser session created; its authentication cookie is not readable by JavaScript.
+          headers:
+            Set-Cookie:
+              description: >-
+                Sets the host-only currency_quiz_admin cookie with Path=/api/v1,
+                HttpOnly, and the configured Secure and SameSite attributes.
+                Sets currency_quiz_admin_refresh on /api/v1/auth/session as well.
+                Secure and SameSite=Strict are the defaults; SameSite=None requires Secure.
+                Access lasts at most 300 seconds. Idle expiry is at most 900 seconds;
+                absolute session expiry is at most 1800 seconds.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserSessionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      tags: [Authentication]
+      operationId: getBrowserSession
+      summary: Restore the current browser admin session
+      description: >-
+        Returns the authenticated username, remaining lifetime, and session-bound
+        CSRF token without extending the session. Uses Cache-Control: no-store.
+        Explicit origins must be allowed for browser administration. A same-origin
+        browser GET may omit Origin. Cross-origin browser requests need credentials:
+        include and credentialed CORS for their exact origin. A bearer token is not
+        accepted in place of the session cookie.
+      security:
+        - adminCookie: []
+        - adminRefresh: []
+      responses:
+        "200":
+          description: Current browser session metadata; no authentication credential is exposed in JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [Authentication]
+      operationId: deleteBrowserSession
+      summary: Sign out of the browser admin session
+      description: >-
+        Revokes this browser session on the server and expires its cookie. Requires
+        the session's X-CSRF-Token and an Origin allowed for browser administration.
+        Uses Cache-Control: no-store. Other browser sessions and separately issued
+        bearer tokens are unaffected. A revoked session cannot be restored or used
+        for later mutations, even if its old cookie is replayed.
+      parameters:
+        - $ref: "#/components/parameters/BrowserOrigin"
+      security:
+        - adminCookie: []
+          adminCsrf: []
+        - adminRefresh: []
+          adminCsrf: []
+      responses:
+        "204":
+          description: Browser session revoked. No response body.
+          headers:
+            Set-Cookie:
+              description: Expires currency_quiz_admin with the same cookie path and attributes used at sign-in.
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/auth/session/refresh:
+    post:
+      tags: [Authentication]
+      operationId: refreshBrowserSession
+      summary: Rotate browser access and refresh cookies
+      description: >-
+        Requires the current refresh cookie, its CSRF token, and a trusted Origin.
+        Rotates both opaque credentials, invalidating the old access token.
+        Reusing a spent refresh token revokes the entire session family.
+        Refresh does not extend idle or absolute expiry. Serialize refresh requests
+        across tabs; never retry a refresh automatically after a timeout.
+        Shares a 30-requests-per-minute per-client-IP limit with activity recording.
+        Responses, including errors, use Cache-Control: no-store.
+      parameters:
+        - $ref: "#/components/parameters/BrowserOrigin"
+      security:
+        - adminRefresh: []
+          adminCsrf: []
+      responses:
+        "200":
+          description: Updated metadata and new access and refresh Set-Cookie headers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/auth/session/activity:
+    post:
+      tags: [Authentication]
+      operationId: recordBrowserActivity
+      summary: Record admin activity without extending the absolute session limit
+      description: >-
+        Called only following user interaction, never on a polling timer.
+        Requires a live access cookie, CSRF token and trusted Origin.
+        Resets the idle deadline to at most 900 seconds, bounded by the original
+        1800-second absolute deadline. Does not renew access credentials.
+        Shares a 30-requests-per-minute per-client-IP limit with refresh.
+        Responses, including errors, use Cache-Control: no-store.
+      parameters:
+        - $ref: "#/components/parameters/BrowserOrigin"
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      responses:
+        "200":
+          description: Updated remaining idle, access and absolute lifetimes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
 components:
   securitySchemes:
     adminBearer:
@@ -216,7 +414,43 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Admin JWT returned by POST /api/v1/auth/login.
+    adminCookie:
+      type: apiKey
+      in: cookie
+      name: currency_quiz_admin
+      description: >-
+        Opaque HttpOnly browser session cookie set by POST /api/v1/auth/session.
+        Browser requests use credentials: include; JavaScript never reads its value.
+        The session is stored on the server and ends on expiry, sign-out, server
+        restart, or eviction from the bounded session registry. Mutations additionally
+        require the session-bound CSRF header and an explicitly trusted Origin.
+    adminCsrf:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: >-
+        Session-bound token returned by POST or GET /api/v1/auth/session. Required
+        with cookie authentication for mutations. Keep it in memory and retrieve it
+        again after a page reload. It is not an authentication credential by itself.
+    adminRefresh:
+      type: apiKey
+      in: cookie
+      name: currency_quiz_admin_refresh
+      description: >-
+        Rotating opaque HttpOnly refresh credential, scoped to /api/v1/auth/session.
+        Server-side idle expiry is at most 15 minutes and absolute expiry at most
+        30 minutes. Never exposed in JSON. A used token revokes its session family
+        if replayed at the refresh endpoint. Requires the session CSRF token for writes.
   parameters:
+    BrowserOrigin:
+      name: Origin
+      in: header
+      required: true
+      description: Exact browser origin listed in ADMIN_CORS_ALLOWED_ORIGINS; wildcard and null origins are rejected.
+      schema:
+        type: string
+        format: uri
+        example: https://quiz.example.com
     QuestionId:
       name: id
       in: path
@@ -227,7 +461,7 @@ components:
         format: uuid
   responses:
     Forbidden:
-      description: The request origin is not allowed.
+      description: The request origin is not allowed, or a cookie-authenticated mutation has a missing or invalid CSRF token.
       content:
         application/json:
           schema:
@@ -239,7 +473,7 @@ components:
           schema:
             $ref: "#/components/schemas/ApiError"
     Unauthorized:
-      description: Invalid credentials or a missing, expired, or invalid admin token.
+      description: Invalid credentials or a missing, expired, revoked, or invalid admin session or bearer token.
       content:
         application/json:
           schema:
@@ -434,9 +668,48 @@ components:
           type: integer
           format: int64
           minimum: 1
-          maximum: 86400
+          maximum: 300
           description: Token lifetime in seconds.
-          example: 3600
+          example: 300
+    BrowserSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [username, expiresIn, accessExpiresIn, absoluteExpiresIn, csrfToken]
+      description: >-
+        Browser session metadata, without the authentication cookie or a bearer
+        token. The CSRF token alone cannot authenticate a request.
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 100
+        expiresIn:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 900
+          description: Remaining idle lifetime in seconds, capped by absolute expiry. GET and refresh do not extend it.
+          example: 900
+        accessExpiresIn:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 300
+          description: Remaining access-cookie lifetime; zero means refresh is required before admin changes.
+          example: 300
+        absoluteExpiresIn:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1800
+          description: Remaining lifetime from the original sign-in, unaffected by activity or refresh.
+          example: 1800
+        csrfToken:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          description: Random session-bound CSRF token, encoded as unpadded base64url. Keep it in memory.
     ApiError:
       type: object
       additionalProperties: false

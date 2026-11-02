@@ -68,6 +68,33 @@ export interface ApiError {
     details: Array<string>;
 }
 /**
+ * Browser session metadata, without the authentication cookie or a bearer token. The CSRF token alone cannot authenticate a request.
+ * @export
+ * @interface BrowserSessionResponse
+ */
+export interface BrowserSessionResponse {
+    /**
+     *
+     */
+    username: string;
+    /**
+     * Remaining idle lifetime in seconds, capped by absolute expiry. GET and refresh do not extend it.
+     */
+    expiresIn: number;
+    /**
+     * Remaining access-cookie lifetime; zero means refresh is required before admin changes.
+     */
+    accessExpiresIn: number;
+    /**
+     * Remaining lifetime from the original sign-in, unaffected by activity or refresh.
+     */
+    absoluteExpiresIn: number;
+    /**
+     * Random session-bound CSRF token, encoded as unpadded base64url. Keep it in memory.
+     */
+    csrfToken: string;
+}
+/**
  *
  * @export
  * @interface CreateQuestionRequest

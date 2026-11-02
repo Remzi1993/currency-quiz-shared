@@ -4,12 +4,24 @@ The source of truth is [openapi/currency-quiz.v1.yaml](openapi/currency-quiz.v1.
 
 This repository contains no application logic or credentials.
 
-| Consumer                | How it uses the contract                                                                                                                         |
-|-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| Ktor backend            | OpenAPI Generator creates Kotlin models with kotlinx.serialization during the Gradle build. The same YAML is bundled for Swagger.                |
-| Vue/TypeScript frontend | Imports named model types from the committed declarations in `generated/typescript/schema.d.ts`. |
+| Consumer                | How it uses the contract                                                                                                          |
+|-------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| Ktor backend            | OpenAPI Generator creates Kotlin models with kotlinx.serialization during the Gradle build. The same YAML is bundled for Swagger. |
+| Vue/TypeScript frontend | Imports named model types from the committed declarations in `generated/typescript/schema.d.ts`.                                  |
 
 Generated TypeScript types provide compile-time checks. They do not validate an HTTP response at runtime. Authentication, input validation and persistence belong in the backend.
+
+## Admin authentication
+
+Browser applications use `POST /api/v1/auth/session` with JSON credentials and `credentials: 'include'`. The backend sets opaque, host-only HttpOnly cookies: `currency_quiz_admin` on `/api/v1` and `currency_quiz_admin_refresh` on `/api/v1/auth/session`. Secure and `SameSite=Strict` are the defaults. `BrowserSessionResponse` contains `username`, remaining idle `expiresIn`, `accessExpiresIn`, `absoluteExpiresIn`, and `csrfToken`. It never contains either cookie credential.
+
+Use `GET /api/v1/auth/session` to restore metadata; a current refresh cookie can restore metadata after access expires. `POST /api/v1/auth/session/refresh` rotates both credentials and revokes the family if a spent refresh token is reused. Question changes require a live access cookie. Cookie-authenticated writes, refresh and logout require `X-CSRF-Token` and an exact origin in `ADMIN_CORS_ALLOWED_ORIGINS`. Keep CSRF in memory. `DELETE /api/v1/auth/session` revokes the family and clears both cookies. Session responses are not cacheable.
+
+Access lasts at most 300 seconds, inactivity at most 900 seconds, and the original browser session at most 1800 seconds. These settings may be reduced. Reads and refresh do not extend inactivity; valid question changes and `POST /api/v1/auth/session/activity` do, bounded by the absolute deadline. Activity is reported only following user interaction. Serialize refresh/login/logout across tabs and recheck cookies after waiting; never automatically retry an uncertain refresh. A backend restart or bounded-registry eviction also ends the family. Bearer JWTs are capped at five minutes and do not use this browser renewal flow.
+
+The browser allowlist is separate from the public API's CORS settings. Credentialed CORS uses the exact trusted origin, never `*`. Prefer serving the browser API through the frontend's `/api` proxy; direct requests between unrelated Netlify and Render domains require `SameSite=None; Secure`, and browser third-party-cookie policies can still block them. See the backend README for deployment settings and its secure coding documentation for the threat model and limits.
+
+Scripts and other non-browser API clients can continue using `POST /api/v1/auth/login` and the returned bearer JWT. That endpoint does not set a browser session cookie. The OpenAPI security alternatives distinguish `adminBearer` from the combined `adminCookie` and `adminCsrf` requirements.
 
 ## Start development
 
@@ -39,11 +51,11 @@ npm run generate
 npm run check
 ```
 
-| Script | What it does | Output |
-|--------|--------------|--------|
-| `lint` | Uses Redocly CLI to validate the OpenAPI structure, references and configured authoring rules. | Reports errors and warnings. |
-| `generate` | Uses OpenAPI Generator to generate models, then TypeScript to emit their declarations. | Writes `generated/typescript/schema.d.ts`; emits no API client or JavaScript runtime. |
-| `check` | Runs linting, verifies that generated declarations match the contract, and type-checks [the consumer example](examples/typescript-client.ts) and [contract guarantees](examples/typescript-contract.ts). | Reports failures without rewriting generated declarations or emitting JavaScript. |
+| Script     | What it does                                                                                                                                                                                             | Output                                                                                |
+|------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| `lint`     | Uses Redocly CLI to validate the OpenAPI structure, references and configured authoring rules.                                                                                                           | Reports errors and warnings.                                                          |
+| `generate` | Uses OpenAPI Generator to generate models, then TypeScript to emit their declarations.                                                                                                                   | Writes `generated/typescript/schema.d.ts`; emits no API client or JavaScript runtime. |
+| `check`    | Runs linting, verifies that generated declarations match the contract, and type-checks [the consumer example](examples/typescript-client.ts) and [contract guarantees](examples/typescript-contract.ts). | Reports failures without rewriting generated declarations or emitting JavaScript.     |
 
 The scripts are defined in [package.json](package.json). If `check` reports outdated declarations, regenerate them and rerun the check. Commit the YAML and generated declarations together; make changes in the YAML rather than editing generated types.
 

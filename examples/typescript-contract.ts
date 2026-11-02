@@ -2,6 +2,7 @@
 import type {
   AdminQuestion,
   ApiError,
+  BrowserSessionResponse,
   PublicQuestion,
   TokenResponse,
   UpdateQuestionRequest,
@@ -10,6 +11,7 @@ import type {
 declare const question: PublicQuestion;
 declare const admin: AdminQuestion;
 declare const error: ApiError;
+declare const session: BrowserSessionResponse;
 declare const runtime: typeof import("@currency-quiz/contract");
 
 // @ts-expect-error The schema package must not advertise runtime enum objects.
@@ -19,6 +21,20 @@ runtime.TokenResponseTokenTypeEnum;
 question.options satisfies string[];
 admin.correctAnswer satisfies string;
 error.details satisfies string[];
+session.username satisfies string;
+session.csrfToken satisfies string;
+session.expiresIn satisfies number;
+session.accessExpiresIn satisfies number;
+session.absoluteExpiresIn satisfies number;
+
+// @ts-expect-error Browser session JSON must not expose an authentication token.
+session.accessToken;
+
+// @ts-expect-error Refresh credentials also remain in HttpOnly cookies.
+session.refreshToken;
+
+// @ts-expect-error Session metadata requires a CSRF token for protected browser mutations.
+({ username: "admin", expiresIn: 3600 }) satisfies BrowserSessionResponse;
 
 // @ts-expect-error Public questions must not expose the correct answer.
 question.correctAnswer;
