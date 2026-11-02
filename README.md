@@ -1,6 +1,7 @@
 # Currency quiz shared contract
 
-The source of truth is [openapi/currency-quiz.v1.yaml](openapi/currency-quiz.v1.yaml). It describes the REST endpoints, JSON schemas, status codes and admin authentication. Kotlin and TypeScript consume generated models from this language-neutral file.
+The source of truth is [openapi/currency-quiz.v1.yaml](openapi/currency-quiz.v1.yaml). It describes the REST endpoints, 
+JSON schemas, status codes and admin authentication. Kotlin and TypeScript consume generated models from this language-neutral file.
 
 This repository contains no application logic or credentials.
 
@@ -9,23 +10,43 @@ This repository contains no application logic or credentials.
 | Ktor backend            | OpenAPI Generator creates Kotlin models with kotlinx.serialization during the Gradle build. The same YAML is bundled for Swagger. |
 | Vue/TypeScript frontend | Imports named model types from the committed declarations in `generated/typescript/schema.d.ts`.                                  |
 
-Generated TypeScript types provide compile-time checks. They do not validate an HTTP response at runtime. Authentication, input validation and persistence belong in the backend.
+Generated TypeScript types provide compile-time checks. They do not validate an HTTP response at runtime. Authentication, 
+input validation and persistence belong in the backend.
 
 ## Admin authentication
 
-Browser applications use `POST /api/v1/auth/session` with JSON credentials and `credentials: 'include'`. The backend sets opaque, host-only HttpOnly cookies: `currency_quiz_admin` on `/api/v1` and `currency_quiz_admin_refresh` on `/api/v1/auth/session`. Secure and `SameSite=Strict` are the defaults. `BrowserSessionResponse` contains `username`, remaining idle `expiresIn`, `accessExpiresIn`, `absoluteExpiresIn`, and `csrfToken`. It never contains either cookie credential.
+Browser applications use `POST /api/v1/auth/session` with JSON credentials and `credentials: 'include'`. The backend 
+sets opaque, host-only HttpOnly cookies: `currency_quiz_admin` on `/api/v1` and `currency_quiz_admin_refresh` on 
+`/api/v1/auth/session`. Secure and `SameSite=Strict` are the defaults. `BrowserSessionResponse` contains `username`, 
+remaining idle `expiresIn`, `accessExpiresIn`, `absoluteExpiresIn`, and `csrfToken`. It never contains either cookie credential.
 
-Use `GET /api/v1/auth/session` to restore metadata; a current refresh cookie can restore metadata after access expires. `POST /api/v1/auth/session/refresh` rotates both credentials and revokes the family if a spent refresh token is reused. Question changes require a live access cookie. Cookie-authenticated writes, refresh and logout require `X-CSRF-Token` and an exact origin in `ADMIN_CORS_ALLOWED_ORIGINS`. Keep CSRF in memory. `DELETE /api/v1/auth/session` revokes the family and clears both cookies. Session responses are not cacheable.
+Use `GET /api/v1/auth/session` to restore metadata; a current refresh cookie can restore metadata after access expires. 
+`POST /api/v1/auth/session/refresh` rotates both credentials and revokes the family if a spent refresh token is reused. 
+Question changes require a live access cookie. Cookie-authenticated writes, refresh and logout require `X-CSRF-Token` 
+and an exact origin in `ADMIN_CORS_ALLOWED_ORIGINS`. Keep CSRF in memory. `DELETE /api/v1/auth/session` revokes the 
+family and clears both cookies. Session responses are not cacheable.
 
-Access lasts at most 300 seconds, inactivity at most 900 seconds, and the original browser session at most 1800 seconds. These settings may be reduced. Reads and refresh do not extend inactivity; valid question changes and `POST /api/v1/auth/session/activity` do, bounded by the absolute deadline. Activity is reported only following user interaction. Serialize refresh/login/logout across tabs and recheck cookies after waiting; never automatically retry an uncertain refresh. A backend restart or bounded-registry eviction also ends the family. Bearer JWTs are capped at five minutes and do not use this browser renewal flow.
+Access lasts at most 300 seconds, inactivity at most 900 seconds, and the original browser session at most 1800 seconds. 
+These settings may be reduced. Reads and refresh do not extend inactivity; valid question changes and 
+`POST /api/v1/auth/session/activity` do, bounded by the absolute deadline. Activity is reported only following user interaction. 
+Serialize refresh/login/logout across tabs and recheck cookies after waiting; never automatically retry an uncertain refresh. 
+A backend restart or bounded-registry eviction also ends the family. Bearer JWTs are capped at five minutes and do not 
+use this browser renewal flow.
 
-The browser allowlist is separate from the public API's CORS settings. Credentialed CORS uses the exact trusted origin, never `*`. Prefer serving the browser API through the frontend's `/api` proxy; direct requests between unrelated Netlify and Render domains require `SameSite=None; Secure`, and browser third-party-cookie policies can still block them. See the backend README for deployment settings and its secure coding documentation for the threat model and limits.
+The browser allowlist is separate from the public API's CORS settings. Credentialed CORS uses the exact trusted origin, 
+never `*`. Prefer serving the browser API through the frontend's `/api` proxy; direct requests between unrelated Netlify 
+and Render domains require `SameSite=None; Secure`, and browser third-party-cookie policies can still block them. 
+See the backend README for deployment settings and its secure coding documentation for the threat model and limits.
 
-Scripts and other non-browser API clients can continue using `POST /api/v1/auth/login` and the returned bearer JWT. That endpoint does not set a browser session cookie. The OpenAPI security alternatives distinguish `adminBearer` from the combined `adminCookie` and `adminCsrf` requirements.
+Scripts and other non-browser API clients can continue using `POST /api/v1/auth/login` and the returned bearer JWT. 
+That endpoint does not set a browser session cookie. The OpenAPI security alternatives distinguish `adminBearer` from 
+the combined `adminCookie` and `adminCsrf` requirements.
 
 ## Start development
 
-Install Git, Node.js **26 or newer**, npm **11 or newer**, and Java **11 or newer** with `java` on `PATH`. Java is required for TypeScript generation and checks, including in CI; the backend's JDK 25 also satisfies this requirement. All commands below work in **PowerShell 7+ and Linux/Bash**. Run them from the project folder specified in each section.
+Install Git, Node.js **26 or newer**, npm **11 or newer**, and Java **11 or newer** with `java` on `PATH`. Java is 
+required for TypeScript generation and checks, including in CI; the backend's JDK 25 also satisfies this requirement. 
+All commands below work in **PowerShell 7+ and Linux/Bash**. Run them from the project folder specified in each section.
 
 For a new checkout:
 
@@ -35,11 +56,14 @@ cd currency-quiz-shared
 npm ci
 ```
 
-If you already have a checkout, open its root folder and run the dependency installation command above. `npm ci` installs the versions recorded in `package-lock.json`.
+If you already have a checkout, open its root folder and run the dependency installation command above. `npm ci` 
+installs the versions recorded in `package-lock.json`.
 
-The first generation or freshness check downloads the pinned OpenAPI Generator JAR into `node_modules` and needs network access. No global generator installation is required. Consumers that only import committed declarations do not need Java or the generator.
+The first generation or freshness check downloads the pinned OpenAPI Generator JAR into `node_modules` and needs network access. 
+No global generator installation is required. Consumers that only import committed declarations do not need Java or the generator.
 
-Development in this repository means editing the API contract, validating it and generating types. Start the backend and frontend applications from their own repositories.
+Development in this repository means editing the API contract, validating it and generating types. Start the backend and 
+frontend applications from their own repositories.
 
 ## Maintain the contract
 
@@ -57,25 +81,35 @@ npm run check
 | `generate` | Uses OpenAPI Generator to generate models, then TypeScript to emit their declarations.                                                                                                                   | Writes `generated/typescript/schema.d.ts`; emits no API client or JavaScript runtime. |
 | `check`    | Runs linting, verifies that generated declarations match the contract, and type-checks [the consumer example](examples/typescript-client.ts) and [contract guarantees](examples/typescript-contract.ts). | Reports failures without rewriting generated declarations or emitting JavaScript.     |
 
-The scripts are defined in [package.json](package.json). If `check` reports outdated declarations, regenerate them and rerun the check. Commit the YAML and generated declarations together; make changes in the YAML rather than editing generated types.
+The scripts are defined in [package.json](package.json). If `check` reports outdated declarations, regenerate them and rerun the check. 
+Commit the YAML and generated declarations together; make changes in the YAML rather than editing generated types.
 
 ### TypeScript generation
 
-[openapitools.json](openapitools.json) pins OpenAPI Generator to **7.26.0**. [generators/typescript.json](generators/typescript.json) configures its `typescript-fetch` target for models only: original JSON property names, string dates, and arrays for unique collections so the declarations describe JSON rather than JavaScript `Set` values. It disables generated API implementations and runtime checks.
+[openapitools.json](openapitools.json) pins OpenAPI Generator to **7.26.0**. [generators/typescript.json](generators/typescript.json) configures its 
+`typescript-fetch` target for models only: original JSON property names, string dates, and arrays for unique collections 
+so the declarations describe JSON rather than JavaScript `Set` values. It disables generated API implementations and runtime checks.
 
-The two templates in [generators/typescript](generators/typescript) keep inline and named enums as literal union types, so the declarations do not advertise runtime enum objects that this type-only package does not provide. They preserve the upstream model properties and nullability; review them against the upstream templates when upgrading the pinned generator.
+The two templates in [generators/typescript](generators/typescript) keep inline and named enums as literal union types, so the declarations 
+do not advertise runtime enum objects that this type-only package does not provide. They preserve the upstream model 
+properties and nullability; review them against the upstream templates when upgrading the pinned generator.
 
-[scripts/generate-typescript.mjs](scripts/generate-typescript.mjs) runs that generator and the pinned **TypeScript 7.0.2** CLI, then writes declaration-only output. It avoids the legacy TypeScript compiler API used by `openapi-typescript`. To verify freshness directly, run:
+[scripts/generate-typescript.mjs](scripts/generate-typescript.mjs) runs that generator and the pinned **TypeScript 7.0.2** CLI, then writes declaration-only output. 
+It avoids the legacy TypeScript compiler API used by `openapi-typescript`. To verify freshness directly, run:
 
 ```sh
 npm run generate -- --check
 ```
 
-The freshness check regenerates in a temporary directory and compares the result with the committed declaration. It reports differences without rewriting that file. `npm run check` includes this check, Redocly linting, and TypeScript checks of the consumer example and contract guarantees (public/admin field separation, JSON arrays, nullable PATCH fields, required fields, and token type literals).
+The freshness check regenerates in a temporary directory and compares the result with the committed declaration. 
+It reports differences without rewriting that file. `npm run check` includes this check, Redocly linting, and TypeScript 
+checks of the consumer example and contract guarantees (public/admin field separation, JSON arrays, nullable PATCH fields, 
+required fields, and token type literals).
 
 ### Redocly configuration
 
-[redocly.yaml](redocly.yaml) configures the OpenAPI checks. Redocly CLI automatically finds it in the project root when linting. Run `npm run check` to apply these rules alongside the generation and TypeScript checks.
+[redocly.yaml](redocly.yaml) configures the OpenAPI checks. Redocly CLI automatically finds it in the project root when linting. 
+Run `npm run check` to apply these rules alongside the generation and TypeScript checks.
 
 - `extends: recommended` enables Redocly's recommended validation rules.
 - `info-license: off` suppresses the warning about missing `info.license` metadata in this contract. The other recommended checks remain enabled.
@@ -102,28 +136,36 @@ Import the generated model types and use your application's HTTP client. For exa
 import type { PublicQuestion } from "../../shared/generated/typescript/schema";
 
 export async function listQuestions(): Promise<PublicQuestion[]> {
-  const url = new URL("/api/v1/questions", import.meta.env.VITE_API_BASE_URL);
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
-  return (await response.json()) as PublicQuestion[];
+    const url = new URL("/api/v1/questions", import.meta.env.VITE_API_BASE_URL);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+    return (await response.json()) as PublicQuestion[];
 }
 ```
 
-Configure `VITE_API_BASE_URL` with the backend origin, such as `http://localhost:8080`. The response assertion supplies a compile-time type; it does not validate incoming JSON. These declarations describe models only, without endpoint, status-code or request-path typing. Never put admin credentials or a JWT signing secret in a frontend environment file.
+Configure `VITE_API_BASE_URL` with the backend origin, such as `http://localhost:8080`. The response assertion supplies 
+a compile-time type; it does not validate incoming JSON. These declarations describe models only, without endpoint, 
+status-code or request-path typing. Never put admin credentials or a JWT signing secret in a frontend environment file.
 
-The type-only npm package `@currency-quiz/contract` is also available through `npm install --save-dev ./shared`; use `import type { PublicQuestion } from "@currency-quiz/contract"`. It has no JavaScript runtime export.
+The type-only npm package `@currency-quiz/contract` is also available through `npm install --save-dev ./shared`; 
+use `import type { PublicQuestion } from "@currency-quiz/contract"`. It has no JavaScript runtime export.
 
-When migrating from the previous declarations, replace `components["schemas"]["PublicQuestion"]` with the named `PublicQuestion` import, and do the same for other models such as `UpdateQuestionRequest`. The former `paths`, `operations` and `components` exports are removed, so existing `openapi-fetch` integration must use another source of endpoint types or move to your application's HTTP client.
+When migrating from the previous declarations, replace `components["schemas"]["PublicQuestion"]` with the named 
+`PublicQuestion` import, and do the same for other models such as `UpdateQuestionRequest`. The former `paths`, 
+`operations` and `components` exports are removed, so existing `openapi-fetch` integration must use another source of 
+endpoint types or move to your application's HTTP client.
 
 ### Kotlin backend
 
-Use JDK 25 and initialize the backend's `shared/` submodule first. From the **backend repository root**, explicitly validate the contract and generate Kotlin models with:
+Use JDK 25 and initialize the backend's `shared/` submodule first. From the **backend repository root**, explicitly 
+validate the contract and generate Kotlin models with:
 
 ```sh
 ./gradlew openApiValidate openApiGenerate
 ```
 
-The generator reads [generators/kotlin.json](generators/kotlin.json) and writes serializable DTOs under the backend's `build/generated/openapi` directory. The backend pins the OpenAPI Generator version in its Gradle version catalog.
+The generator reads [generators/kotlin.json](generators/kotlin.json) and writes serializable DTOs under the backend's 
+`build/generated/openapi` directory. The backend pins the OpenAPI Generator version in its Gradle version catalog.
 
 For normal backend development:
 
@@ -132,7 +174,8 @@ For normal backend development:
 ./gradlew build
 ```
 
-These tasks include contract validation and Kotlin model generation as needed. `test` runs the backend regression and contract tests; `build` also packages the application. See the backend README for environment configuration and server startup.
+These tasks include contract validation and Kotlin model generation as needed. `test` runs the backend regression and 
+contract tests; `build` also packages the application. See the backend README for environment configuration and server startup.
 
 ## Version and update policy
 
@@ -144,9 +187,13 @@ These tasks include contract validation and Kotlin model generation as needed. `
 
 ## Continuous integration
 
-[Shared CI](.github/workflows/ci.yml) defines GitHub Actions checks for pushes, pull requests and manual runs. One Ubuntu job installs locked dependencies, lints OpenAPI, checks generated declaration freshness and type-checks the consumer examples and contract guarantees. Separate named steps make a failed gate visible in the logs. It uses Node 26 and Temurin Java 25; Java runs OpenAPI Generator.
+[Shared CI](.github/workflows/ci.yml) defines GitHub Actions checks for pushes, pull requests and manual runs. One Ubuntu job installs locked 
+dependencies, lints OpenAPI, checks generated declaration freshness and type-checks the consumer examples and contract guarantees. 
+Separate named steps make a failed gate visible in the logs. It uses Node 26 and Temurin Java 25; Java runs OpenAPI Generator.
 
-Actions are pinned to full commit IDs with release-version comments; update both together when upgrading. Repository permissions are read-only, and newer runs cancel older ones for the same workflow/ref. To require successful checks before merging, add its `checks` status to the branch ruleset after the first run.
+Actions are pinned to full commit IDs with release-version comments; update both together when upgrading. 
+Repository permissions are read-only, and newer runs cancel older ones for the same workflow/ref. 
+To require successful checks before merging, add its `checks` status to the branch ruleset after the first run.
 
 Run the same gates locally from this repository root (PowerShell 7+ and Linux/Bash):
 
@@ -155,6 +202,10 @@ npm ci
 npm run check
 ```
 
-CI runs the constituent commands as separate steps: `npm run lint`, `npm run generate -- --check` and `npm exec -- tsc --noEmit`. The freshness step does not rewrite committed declarations. If it reports stale output, run `npm run generate`, review the diff and rerun `npm run check` before committing.
+CI runs the constituent commands as separate steps: `npm run lint`, `npm run generate -- --check` and `npm exec -- tsc --noEmit`. 
+The freshness step does not rewrite committed declarations. If it reports stale output, run `npm run generate`, 
+review the diff and rerun `npm run check` before committing.
 
-After committing and pushing the workflow, open **Actions → Shared CI** on GitHub to inspect a run. Manual runs become available from the default branch. This repository supplies contract artifacts through pinned Git submodules; it has no application deployment or publishing step. See the [CI/CD Basics evidence](docs/managing-and-collaborating/starting-points/ci-cd-basics.md) for the stage explanation and remaining evidence gaps.
+After committing and pushing the workflow, open **Actions → Shared CI** on GitHub to inspect a run. 
+Manual runs become available from the default branch. This repository supplies contract artifacts through pinned Git submodules; 
+it has no application deployment or publishing step. See the [CI/CD Basics evidence](docs/managing-and-collaborating/starting-points/ci-cd-basics.md) for the stage explanation and remaining evidence gaps.
