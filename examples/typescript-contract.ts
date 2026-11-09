@@ -25,7 +25,8 @@ session.username satisfies string;
 session.csrfToken satisfies string;
 session.expiresIn satisfies number;
 session.accessExpiresIn satisfies number;
-session.absoluteExpiresIn satisfies number;
+// @ts-expect-error Stateless authentication no longer exposes a server-session deadline.
+session.absoluteExpiresIn;
 
 // @ts-expect-error Browser session JSON must not expose an authentication token.
 session.accessToken;
