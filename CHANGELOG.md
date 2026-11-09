@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.0
+
+- Replace opaque browser credentials and the backend session registry with signed access and refresh JWTs in the same HttpOnly cookie scopes. Default lifetimes are five and ten minutes; both are configurable.
+- Refresh renews access within the original refresh deadline. It does not replace or extend the refresh JWT. Logout clears cookies; copied JWTs remain valid until expiry. There is no per-token revocation or refresh reuse detection.
+- Remove `/api/v1/auth/session/activity` and `BrowserSessionResponse.absoluteExpiresIn`. `expiresIn` now reports remaining refresh lifetime, falling back to access lifetime when only access is available. Existing `/api/v1` browser URLs are retained for this coordinated migration; consumers must update before adopting this contract.
+- Administrator configuration uses a salted bcrypt password hash instead of a plaintext password.
+
 ## 1.2.0
 
 - Add opaque HttpOnly browser admin sessions at `POST`, `GET`, and `DELETE /api/v1/auth/session`, with session metadata and a session-bound CSRF token. The authentication cookie is never exposed in JSON.
