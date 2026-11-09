@@ -68,7 +68,7 @@ export interface ApiError {
     details: Array<string>;
 }
 /**
- * Browser session metadata, without the authentication cookie or a bearer token. The CSRF token alone cannot authenticate a request.
+ * Browser authentication metadata, without an authentication cookie or a bearer token. The CSRF token alone cannot authenticate a request.
  * @export
  * @interface BrowserSessionResponse
  */
@@ -78,7 +78,7 @@ export interface BrowserSessionResponse {
      */
     username: string;
     /**
-     * Remaining idle lifetime in seconds, capped by absolute expiry. GET and refresh do not extend it.
+     * Remaining refresh lifetime in seconds, or access lifetime when only access is available. Reads and refresh never extend the refresh deadline.
      */
     expiresIn: number;
     /**
@@ -86,11 +86,7 @@ export interface BrowserSessionResponse {
      */
     accessExpiresIn: number;
     /**
-     * Remaining lifetime from the original sign-in, unaffected by activity or refresh.
-     */
-    absoluteExpiresIn: number;
-    /**
-     * Random session-bound CSRF token, encoded as unpadded base64url. Keep it in memory.
+     * Random nonce bound to signed JWT claims, encoded as unpadded base64url. Keep it in memory.
      */
     csrfToken: string;
 }
