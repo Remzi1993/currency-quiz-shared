@@ -16,22 +16,27 @@ input validation and persistence belong in the backend.
 ## Admin authentication
 
 Browser applications use `POST /api/v1/auth/session` with JSON credentials and `credentials: 'include'`. The backend 
-sets opaque, host-only HttpOnly cookies: `currency_quiz_admin` on `/api/v1` and `currency_quiz_admin_refresh` on 
+sets signed JWTs in host-only HttpOnly cookies: `currency_quiz_admin` on `/api/v1` and `currency_quiz_admin_refresh` on 
 `/api/v1/auth/session`. Secure and `SameSite=Strict` are the defaults. `BrowserSessionResponse` contains `username`, 
-remaining idle `expiresIn`, `accessExpiresIn`, `absoluteExpiresIn`, and `csrfToken`. It never contains either cookie credential.
+remaining refresh `expiresIn`, `accessExpiresIn`, and `csrfToken`. It never contains either cookie credential.
 
 Use `GET /api/v1/auth/session` to restore metadata; a current refresh cookie can restore metadata after access expires. 
-`POST /api/v1/auth/session/refresh` rotates both credentials and revokes the family if a spent refresh token is reused. 
+`POST /api/v1/auth/session/refresh` renews the access JWT within the refresh JWT's original deadline. 
 Question changes require a live access cookie. Cookie-authenticated writes, refresh and logout require `X-CSRF-Token` 
-and an exact origin in `ADMIN_CORS_ALLOWED_ORIGINS`. Keep CSRF in memory. `DELETE /api/v1/auth/session` revokes the 
-family and clears both cookies. Session responses are not cacheable.
+and an exact origin in `ADMIN_CORS_ALLOWED_ORIGINS`. Keep CSRF in memory. `DELETE /api/v1/auth/session` clears both 
+cookies. Authentication responses are not cacheable.
 
-Access lasts at most 300 seconds, inactivity at most 900 seconds, and the original browser session at most 1800 seconds. 
-These settings may be reduced. Reads and refresh do not extend inactivity; valid question changes and 
-`POST /api/v1/auth/session/activity` do, bounded by the absolute deadline. Activity is reported only following user interaction. 
-Serialize refresh/login/logout across tabs and recheck cookies after waiting; never automatically retry an uncertain refresh. 
-A backend restart or bounded-registry eviction also ends the family. Bearer JWTs are capped at five minutes and do not 
-use this browser renewal flow.
+Access defaults to 300 seconds (`JWT_TOKEN_TTL_SECONDS`), and refresh to 600 seconds from login
+(`JWT_REFRESH_TOKEN_TTL_SECONDS`). A renewed access JWT cannot outlive its refresh JWT. Reads and refresh do not
+extend the refresh deadline. After it expires, log in again. The backend stores no authentication sessions and does
+not record browser activity; tokens remain valid across restarts when the signing key and configuration stay the same.
+Logout cannot revoke copied tokens, and refresh reuse cannot be detected without server-side state.
+Bearer clients receive an access JWT only and log in again when it expires.
+
+Version 2 removes `/api/v1/auth/session/activity` and `absoluteExpiresIn`, and changes `expiresIn` from remaining
+idle time to remaining refresh time (or access time when no refresh is available). Browser clients must remove activity
+requests and adopt the new metadata before updating their shared revision. The existing `/api/v1` URLs remain in this
+coordinated migration; this does not preserve compatibility for older browser clients.
 
 The browser allowlist is separate from the public API's CORS settings. Credentialed CORS uses the exact trusted origin, 
 never `*`. Prefer serving the browser API through the frontend's `/api` proxy; direct requests between unrelated Netlify 

@@ -3,7 +3,7 @@ info:
   title: Currency quiz API
   description: >-
     Play a currency quiz without an account. An authenticated admin can manage questions.
-  version: "1.2.0"
+  version: "2.0.0"
 servers:
   - url: /
 security: []
@@ -11,9 +11,9 @@ tags:
   - name: Quiz
     description: Questions and server-side answer checking.
   - name: Authentication
-    description: Browser admin sessions and access tokens for non-browser clients.
+    description: Stateless JWT authentication for browser and non-browser clients.
   - name: Administration
-    description: Question management protected by a browser session or admin bearer token.
+    description: Question management protected by an admin access JWT.
 paths:
   /api/v1/questions:
     get:
@@ -38,7 +38,7 @@ paths:
       operationId: createQuestion
       summary: Create a question
       description: >-
-        Use an admin bearer token, or a browser session cookie with its X-CSRF-Token
+        Use an admin bearer token, or an access JWT cookie with its X-CSRF-Token
         header and an Origin explicitly allowed for browser administration.
       security:
         - adminBearer: []
@@ -105,7 +105,7 @@ paths:
         Supply at least one field. Omitted or null fields retain their previous values.
         The merged question must be valid; changing options may require changing
         correctAnswer in the same request. Use an admin bearer token, or a browser
-        session cookie with its X-CSRF-Token header and an Origin explicitly allowed
+        access JWT cookie with its X-CSRF-Token header and an Origin explicitly allowed
         for browser administration.
       security:
         - adminBearer: []
@@ -143,7 +143,7 @@ paths:
       operationId: deleteQuestion
       summary: Delete a question
       description: >-
-        Use an admin bearer token, or a browser session cookie with its X-CSRF-Token
+        Use an admin bearer token, or an access JWT cookie with its X-CSRF-Token
         header and an Origin explicitly allowed for browser administration.
       security:
         - adminBearer: []
@@ -205,7 +205,7 @@ paths:
       summary: Obtain an admin access token
       description: >-
         Checks the configured admin username and password. Limited to 5 requests
-        per minute per client IP, shared with browser session sign-in. This endpoint
+        per minute per client IP, shared with browser sign-in. This endpoint
         returns a bearer token for scripts and other non-browser clients; it does not
         create a browser cookie. Browser applications should use POST /api/v1/auth/session
         instead. Use HTTPS outside local development.
@@ -236,16 +236,16 @@ paths:
     post:
       tags: [Authentication]
       operationId: createBrowserSession
-      summary: Sign in to a browser admin session
+      summary: Sign in with HttpOnly JWT cookies
       description: >-
-        Checks the configured admin username and password, revokes an existing session
-        presented by this browser, and sets an opaque HttpOnly cookie. Requires JSON
+        Checks the configured admin username and password against its salted bcrypt
+        hash, then sets signed access and refresh JWTs in HttpOnly cookies. Requires JSON
         and an Origin in ADMIN_CORS_ALLOWED_ORIGINS, which never accepts a wildcard.
         Limited to 5 sign-in requests per minute per client IP, shared with
-        POST /api/v1/auth/login. The response contains session metadata and a CSRF
+        POST /api/v1/auth/login. The response contains authentication metadata and a CSRF
         token, never the cookie value or a bearer token. Use credentials: include for
-        browser requests and keep the CSRF token in memory. Session responses use
-        Cache-Control: no-store. Use HTTPS outside local development.
+        browser requests and keep the CSRF token in memory. No backend session record
+        is created. Responses use Cache-Control: no-store. Use HTTPS outside local development.
       parameters:
         - $ref: "#/components/parameters/BrowserOrigin"
       requestBody:
@@ -256,7 +256,7 @@ paths:
               $ref: "#/components/schemas/LoginRequest"
       responses:
         "200":
-          description: Browser session created; its authentication cookie is not readable by JavaScript.
+          description: JWT cookies issued; authentication credentials are not readable by JavaScript.
           headers:
             Set-Cookie:
               description: >-
@@ -264,8 +264,8 @@ paths:
                 HttpOnly, and the configured Secure and SameSite attributes.
                 Sets currency_quiz_admin_refresh on /api/v1/auth/session as well.
                 Secure and SameSite=Strict are the defaults; SameSite=None requires Secure.
-                Access lasts at most 300 seconds. Idle expiry is at most 900 seconds;
-                absolute session expiry is at most 1800 seconds.
+                Access defaults to 300 seconds and refresh to 600 seconds from login,
+                configured through JWT_TOKEN_TTL_SECONDS and JWT_REFRESH_TOKEN_TTL_SECONDS.
               schema:
                 type: string
           content:
@@ -287,20 +287,21 @@ paths:
     get:
       tags: [Authentication]
       operationId: getBrowserSession
-      summary: Restore the current browser admin session
+      summary: Read current browser authentication metadata
       description: >-
-        Returns the authenticated username, remaining lifetime, and session-bound
-        CSRF token without extending the session. Uses Cache-Control: no-store.
+        Returns the authenticated username, remaining token lifetimes, and JWT-bound
+        CSRF token without issuing tokens or extending expiry. Uses Cache-Control: no-store.
         Explicit origins must be allowed for browser administration. A same-origin
         browser GET may omit Origin. Cross-origin browser requests need credentials:
         include and credentialed CORS for their exact origin. A bearer token is not
-        accepted in place of the session cookie.
+        accepted in place of a JWT cookie. A valid refresh JWT can restore metadata
+        after access expires, but cannot authorize question changes.
       security:
         - adminCookie: []
         - adminRefresh: []
       responses:
         "200":
-          description: Current browser session metadata; no authentication credential is exposed in JSON.
+          description: Current token metadata; no authentication credential is exposed in JSON.
           content:
             application/json:
               schema:
@@ -314,13 +315,12 @@ paths:
     delete:
       tags: [Authentication]
       operationId: deleteBrowserSession
-      summary: Sign out of the browser admin session
+      summary: Clear browser authentication cookies
       description: >-
-        Revokes this browser session on the server and expires its cookie. Requires
-        the session's X-CSRF-Token and an Origin allowed for browser administration.
-        Uses Cache-Control: no-store. Other browser sessions and separately issued
-        bearer tokens are unaffected. A revoked session cannot be restored or used
-        for later mutations, even if its old cookie is replayed.
+        Expires both cookies using their original paths and attributes. Requires
+        the JWT-bound X-CSRF-Token and an Origin allowed for browser administration.
+        Uses Cache-Control: no-store. There is no server-side revocation registry:
+        copied access and refresh JWTs remain valid until their respective expiry.
       parameters:
         - $ref: "#/components/parameters/BrowserOrigin"
       security:
@@ -330,10 +330,10 @@ paths:
           adminCsrf: []
       responses:
         "204":
-          description: Browser session revoked. No response body.
+          description: Browser authentication cookies cleared. No response body.
           headers:
             Set-Cookie:
-              description: Expires currency_quiz_admin with the same cookie path and attributes used at sign-in.
+              description: Expires both JWT cookies with the same paths and attributes used at sign-in.
               schema:
                 type: string
         "401":
@@ -346,14 +346,13 @@ paths:
     post:
       tags: [Authentication]
       operationId: refreshBrowserSession
-      summary: Rotate browser access and refresh cookies
+      summary: Renew the browser access JWT
       description: >-
-        Requires the current refresh cookie, its CSRF token, and a trusted Origin.
-        Rotates both opaque credentials, invalidating the old access token.
-        Reusing a spent refresh token revokes the entire session family.
-        Refresh does not extend idle or absolute expiry. Serialize refresh requests
-        across tabs; never retry a refresh automatically after a timeout.
-        Shares a 30-requests-per-minute per-client-IP limit with activity recording.
+        Requires an unexpired refresh JWT cookie, its CSRF token, and a trusted Origin.
+        Issues a new access JWT; the refresh JWT and its original expiry do not change.
+        Refresh defaults to a fixed 600-second window from login, after which credentials
+        must be entered again. Earlier JWTs remain valid until expiry; refresh reuse
+        cannot be detected without server-side state. Limited to 30 requests per minute per client IP.
         Responses, including errors, use Cache-Control: no-store.
       parameters:
         - $ref: "#/components/parameters/BrowserOrigin"
@@ -362,39 +361,7 @@ paths:
           adminCsrf: []
       responses:
         "200":
-          description: Updated metadata and new access and refresh Set-Cookie headers.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BrowserSessionResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /api/v1/auth/session/activity:
-    post:
-      tags: [Authentication]
-      operationId: recordBrowserActivity
-      summary: Record admin activity without extending the absolute session limit
-      description: >-
-        Called only following user interaction, never on a polling timer.
-        Requires a live access cookie, CSRF token and trusted Origin.
-        Resets the idle deadline to at most 900 seconds, bounded by the original
-        1800-second absolute deadline. Does not renew access credentials.
-        Shares a 30-requests-per-minute per-client-IP limit with refresh.
-        Responses, including errors, use Cache-Control: no-store.
-      parameters:
-        - $ref: "#/components/parameters/BrowserOrigin"
-      security:
-        - adminCookie: []
-          adminCsrf: []
-      responses:
-        "200":
-          description: Updated remaining idle, access and absolute lifetimes.
+          description: Updated token metadata and a new access Set-Cookie header.
           content:
             application/json:
               schema:
@@ -419,17 +386,17 @@ components:
       in: cookie
       name: currency_quiz_admin
       description: >-
-        Opaque HttpOnly browser session cookie set by POST /api/v1/auth/session.
+        Signed access JWT in an HttpOnly cookie set by POST /api/v1/auth/session.
         Browser requests use credentials: include; JavaScript never reads its value.
-        The session is stored on the server and ends on expiry, sign-out, server
-        restart, or eviction from the bounded session registry. Mutations additionally
-        require the session-bound CSRF header and an explicitly trusted Origin.
+        The backend verifies the signature and claims without a session registry.
+        Default lifetime is 300 seconds, configurable through JWT_TOKEN_TTL_SECONDS.
+        Mutations require the JWT-bound CSRF header and an explicitly trusted Origin.
     adminCsrf:
       type: apiKey
       in: header
       name: X-CSRF-Token
       description: >-
-        Session-bound token returned by POST or GET /api/v1/auth/session. Required
+        JWT-bound token returned by POST or GET /api/v1/auth/session. Required
         with cookie authentication for mutations. Keep it in memory and retrieve it
         again after a page reload. It is not an authentication credential by itself.
     adminRefresh:
@@ -437,10 +404,11 @@ components:
       in: cookie
       name: currency_quiz_admin_refresh
       description: >-
-        Rotating opaque HttpOnly refresh credential, scoped to /api/v1/auth/session.
-        Server-side idle expiry is at most 15 minutes and absolute expiry at most
-        30 minutes. Never exposed in JSON. A used token revokes its session family
-        if replayed at the refresh endpoint. Requires the session CSRF token for writes.
+        Signed refresh JWT in an HttpOnly cookie, scoped to /api/v1/auth/session.
+        Expires 600 seconds after login by default, configurable through
+        JWT_REFRESH_TOKEN_TTL_SECONDS. Refresh does not extend that deadline.
+        Never exposed in JSON and never accepted as an access token. There is no
+        single-use enforcement or reuse detection. Refresh and logout require CSRF.
   parameters:
     BrowserOrigin:
       name: Origin
@@ -473,7 +441,7 @@ components:
           schema:
             $ref: "#/components/schemas/ApiError"
     Unauthorized:
-      description: Invalid credentials or a missing, expired, revoked, or invalid admin session or bearer token.
+      description: Invalid credentials or a missing, expired, or invalid admin JWT.
       content:
         application/json:
           schema:
@@ -668,15 +636,14 @@ components:
           type: integer
           format: int64
           minimum: 1
-          maximum: 300
           description: Token lifetime in seconds.
           example: 300
     BrowserSessionResponse:
       type: object
       additionalProperties: false
-      required: [username, expiresIn, accessExpiresIn, absoluteExpiresIn, csrfToken]
+      required: [username, expiresIn, accessExpiresIn, csrfToken]
       description: >-
-        Browser session metadata, without the authentication cookie or a bearer
+        Browser authentication metadata, without an authentication cookie or a bearer
         token. The CSRF token alone cannot authenticate a request.
       properties:
         username:
@@ -687,29 +654,20 @@ components:
           type: integer
           format: int64
           minimum: 1
-          maximum: 900
-          description: Remaining idle lifetime in seconds, capped by absolute expiry. GET and refresh do not extend it.
-          example: 900
+          description: Remaining refresh lifetime in seconds, or access lifetime when only access is available. Reads and refresh never extend the refresh deadline.
+          example: 600
         accessExpiresIn:
           type: integer
           format: int64
           minimum: 0
-          maximum: 300
           description: Remaining access-cookie lifetime; zero means refresh is required before admin changes.
           example: 300
-        absoluteExpiresIn:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 1800
-          description: Remaining lifetime from the original sign-in, unaffected by activity or refresh.
-          example: 1800
         csrfToken:
           type: string
           minLength: 43
           maxLength: 43
           pattern: "^[A-Za-z0-9_-]{43}$"
-          description: Random session-bound CSRF token, encoded as unpadded base64url. Keep it in memory.
+          description: Random nonce bound to signed JWT claims, encoded as unpadded base64url. Keep it in memory.
     ApiError:
       type: object
       additionalProperties: false
