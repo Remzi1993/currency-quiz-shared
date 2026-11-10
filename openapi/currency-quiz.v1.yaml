@@ -3,7 +3,7 @@ info:
   title: Currency quiz API
   description: >-
     Play a currency quiz without an account. An authenticated admin can manage questions.
-  version: "2.0.0"
+  version: "2.1.0"
 servers:
   - url: /
 security: []
@@ -208,7 +208,8 @@ paths:
         per minute per client IP, shared with browser sign-in. This endpoint
         returns a bearer token for scripts and other non-browser clients; it does not
         create a browser cookie. Browser applications should use POST /api/v1/auth/session
-        instead. Use HTTPS outside local development.
+        instead. Access defaults to 300 seconds through JWT_TOKEN_TTL_SECONDS and is
+        bounded by JWT_ABSOLUTE_TTL_SECONDS from original sign-in. Use HTTPS outside local development.
       requestBody:
         required: true
         content:
@@ -264,8 +265,11 @@ paths:
                 HttpOnly, and the configured Secure and SameSite attributes.
                 Sets currency_quiz_admin_refresh on /api/v1/auth/session as well.
                 Secure and SameSite=Strict are the defaults; SameSite=None requires Secure.
-                Access defaults to 300 seconds and refresh to 600 seconds from login,
+                Access defaults to 300 seconds and refresh to 600 seconds from issuance,
                 configured through JWT_TOKEN_TTL_SECONDS and JWT_REFRESH_TOKEN_TTL_SECONDS.
+                Both expire no later than the original sign-in plus JWT_ABSOLUTE_TTL_SECONDS
+                (86400 seconds by default). Each JWT carries the original auth_time and
+                immutable absolute_exp deadline in signed claims; renewal preserves both.
               schema:
                 type: string
           content:
@@ -346,13 +350,18 @@ paths:
     post:
       tags: [Authentication]
       operationId: refreshBrowserSession
-      summary: Renew the browser access JWT
+      summary: Renew browser access and refresh JWTs
       description: >-
         Requires an unexpired refresh JWT cookie, its CSRF token, and a trusted Origin.
-        Issues a new access JWT; the refresh JWT and its original expiry do not change.
-        Refresh defaults to a fixed 600-second window from login, after which credentials
-        must be entered again. Earlier JWTs remain valid until expiry; refresh reuse
-        cannot be detected without server-side state. Limited to 30 requests per minute per client IP.
+        Issues new access and refresh JWTs with the same CSRF nonce. Their default
+        lifetimes are 300 and 600 seconds from renewal. Each expiry is the earlier of
+        its configured lifetime and the immutable absolute_exp deadline established
+        at original sign-in; auth_time and absolute_exp are preserved in both signed JWTs.
+        JWT_ABSOLUTE_TTL_SECONDS defaults to 86400 seconds (24 hours). Reads and renewal
+        never extend that absolute deadline. After refresh or the absolute deadline
+        expires, credentials must be entered again. Earlier JWTs remain valid until
+        their own expiry; there is no single-use enforcement or refresh reuse detection.
+        Limited to 30 requests per minute per client IP.
         Responses, including errors, use Cache-Control: no-store.
       parameters:
         - $ref: "#/components/parameters/BrowserOrigin"
@@ -361,11 +370,35 @@ paths:
           adminCsrf: []
       responses:
         "200":
-          description: Updated token metadata and a new access Set-Cookie header.
+          description: Updated token metadata and new access and refresh Set-Cookie headers.
+          headers:
+            Set-Cookie:
+              description: >-
+                Replaces currency_quiz_admin on /api/v1 and currency_quiz_admin_refresh
+                on /api/v1/auth/session, using their original host-only, HttpOnly,
+                Secure and SameSite attributes. Max-Age follows each new JWT expiry,
+                shortened when the original absolute deadline is near.
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/BrowserSessionResponse"
+              examples:
+                renewed:
+                  summary: Default lifetimes after renewal
+                  value:
+                    username: admin
+                    expiresIn: 600
+                    accessExpiresIn: 300
+                    csrfToken: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                nearAbsoluteDeadline:
+                  summary: Both tokens are shortened by the original absolute deadline
+                  value:
+                    username: admin
+                    expiresIn: 20
+                    accessExpiresIn: 20
+                    csrfToken: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -389,7 +422,8 @@ components:
         Signed access JWT in an HttpOnly cookie set by POST /api/v1/auth/session.
         Browser requests use credentials: include; JavaScript never reads its value.
         The backend verifies the signature and claims without a session registry.
-        Default lifetime is 300 seconds, configurable through JWT_TOKEN_TTL_SECONDS.
+        Default lifetime is 300 seconds, configurable through JWT_TOKEN_TTL_SECONDS
+        and bounded by the original sign-in's JWT_ABSOLUTE_TTL_SECONDS deadline.
         Mutations require the JWT-bound CSRF header and an explicitly trusted Origin.
     adminCsrf:
       type: apiKey
@@ -405,8 +439,10 @@ components:
       name: currency_quiz_admin_refresh
       description: >-
         Signed refresh JWT in an HttpOnly cookie, scoped to /api/v1/auth/session.
-        Expires 600 seconds after login by default, configurable through
-        JWT_REFRESH_TOKEN_TTL_SECONDS. Refresh does not extend that deadline.
+        Expires 600 seconds after issuance by default, configurable through
+        JWT_REFRESH_TOKEN_TTL_SECONDS. Successful renewal issues a new refresh JWT,
+        bounded by JWT_ABSOLUTE_TTL_SECONDS (86400 seconds from original sign-in by default).
+        The signed auth_time and absolute_exp claims remain unchanged across renewal.
         Never exposed in JSON and never accepted as an access token. There is no
         single-use enforcement or reuse detection. Refresh and logout require CSRF.
   parameters:
@@ -654,7 +690,7 @@ components:
           type: integer
           format: int64
           minimum: 1
-          description: Remaining refresh lifetime in seconds, or access lifetime when only access is available. Reads and refresh never extend the refresh deadline.
+          description: Remaining current refresh lifetime in seconds, or access lifetime when only access is available. Renewal replaces refresh within the unchanged original absolute deadline; reads do not extend expiry.
           example: 600
         accessExpiresIn:
           type: integer

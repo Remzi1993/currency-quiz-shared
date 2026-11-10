@@ -78,7 +78,7 @@ export interface BrowserSessionResponse {
      */
     username: string;
     /**
-     * Remaining refresh lifetime in seconds, or access lifetime when only access is available. Reads and refresh never extend the refresh deadline.
+     * Remaining current refresh lifetime in seconds, or access lifetime when only access is available. Renewal replaces refresh within the unchanged original absolute deadline; reads do not extend expiry.
      */
     expiresIn: number;
     /**
