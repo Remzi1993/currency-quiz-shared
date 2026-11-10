@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.0
+
+- Renew both access and refresh JWT cookies on successful refresh, preserving the CSRF nonce. Access defaults to 300 seconds and each refresh JWT to 600 seconds from issuance.
+- Bound every JWT by an immutable absolute deadline from original sign-in. `JWT_ABSOLUTE_TTL_SECONDS` defaults to 86400 seconds (24 hours); it is configurable alongside both token lifetimes. Signed `auth_time` and `absolute_exp` claims remain unchanged across renewal. Tokens issued near the deadline have shorter lifetimes.
+- Keep the four-field browser metadata response. `expiresIn` reports the current refresh lifetime, which normally returns to 600 after renewal. Logout and replacement still do not revoke earlier JWTs or detect refresh reuse.
+
 ## 2.0.0
 
 - Replace opaque browser credentials and the backend session registry with signed access and refresh JWTs in the same HttpOnly cookie scopes. Default lifetimes are five and ten minutes; both are configurable.

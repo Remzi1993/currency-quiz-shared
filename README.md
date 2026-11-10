@@ -21,16 +21,23 @@ sets signed JWTs in host-only HttpOnly cookies: `currency_quiz_admin` on `/api/v
 remaining refresh `expiresIn`, `accessExpiresIn`, and `csrfToken`. It never contains either cookie credential.
 
 Use `GET /api/v1/auth/session` to restore metadata; a current refresh cookie can restore metadata after access expires. 
-`POST /api/v1/auth/session/refresh` renews the access JWT within the refresh JWT's original deadline. 
+`POST /api/v1/auth/session/refresh` issues new access and refresh JWTs with the same CSRF nonce.
 Question changes require a live access cookie. Cookie-authenticated writes, refresh and logout require `X-CSRF-Token` 
 and an exact origin in `ADMIN_CORS_ALLOWED_ORIGINS`. Keep CSRF in memory. `DELETE /api/v1/auth/session` clears both 
 cookies. Authentication responses are not cacheable.
 
-Access defaults to 300 seconds (`JWT_TOKEN_TTL_SECONDS`), and refresh to 600 seconds from login
-(`JWT_REFRESH_TOKEN_TTL_SECONDS`). A renewed access JWT cannot outlive its refresh JWT. Reads and refresh do not
-extend the refresh deadline. After it expires, log in again. The backend stores no authentication sessions and does
-not record browser activity; tokens remain valid across restarts when the signing key and configuration stay the same.
-Logout cannot revoke copied tokens, and refresh reuse cannot be detected without server-side state.
+Access defaults to 300 seconds from issuance (`JWT_TOKEN_TTL_SECONDS`), refresh to 600 seconds from issuance
+(`JWT_REFRESH_TOKEN_TTL_SECONDS`), and the absolute login lifetime to 86400 seconds (24 hours,
+`JWT_ABSOLUTE_TTL_SECONDS`). All three are configurable in the backend environment. Each JWT expires at the earlier
+of its configured lifetime and the original absolute deadline. Both JWTs carry the signed original `auth_time` and
+immutable `absolute_exp`; renewal preserves these claims, so repeated refresh cannot keep a login alive beyond 24 hours
+with the default settings. For example, renewal with 20 seconds left issues two JWTs lasting only those 20 seconds.
+
+`expiresIn` reports the current refresh JWT's time remaining; it normally returns to 600 after renewal. Reads issue
+no tokens and extend no expiry. If refresh expires before it is renewed, or the absolute deadline is reached, log in
+again. The backend stores no authentication sessions or browser activity; tokens survive restarts with the same key
+and configuration. Logout clears cookies but cannot revoke copied JWTs. Earlier refresh JWTs remain valid until their
+own expiry; replacement provides no single-use enforcement or reuse detection without server-side state.
 Bearer clients receive an access JWT only and log in again when it expires.
 
 Version 2 removes `/api/v1/auth/session/activity` and `absoluteExpiresIn`, and changes `expiresIn` from remaining
